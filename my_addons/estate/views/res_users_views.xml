@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <!-- Extension view: không sao chép/sửa base.view_users_form. Odoo ghép arch
+         này lên parent mỗi khi resolve form view của res.users. -->
+    <record id="res_users_view_form_inherit_estate" model="ir.ui.view">
+        <field name="name">res.users.form.inherit.estate</field>
+        <field name="model">res.users</field>
+        <!-- ref là external ID ổn định của view cha trong module base. -->
+        <field name="inherit_id" ref="base.view_users_form"/>
+        <field name="arch" type="xml">
+            <!-- XPath tìm notebook của parent và chèn một page vào bên trong. -->
+            <xpath expr="//notebook" position="inside">
+                <page string="Real Estate Properties" name="estate_properties">
+                    <field name="property_ids"/>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>

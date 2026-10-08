@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <!--
+        LIST VIEW
+        Record ir.ui.view này là metadata lưu trong database. Web client đọc
+        arch XML rồi render bảng; đây không phải HTML table viết trực tiếp.
+    -->
+    <record id="estate_property_view_list" model="ir.ui.view">
+        <field name="name">estate.property.list</field>
+        <field name="model">estate.property</field>
+        <field name="arch" type="xml">
+            <!-- decoration-* chỉ đổi cách trình bày, không thay business state. -->
+            <list string="Properties"
+                  decoration-success="state in ('offer_received', 'offer_accepted')"
+                  decoration-bf="state == 'offer_accepted'"
+                  decoration-muted="state == 'sold'">
+                <!-- state phải có trong view để decoration expressions đọc được,
+                     nhưng column_invisible giấu nó khỏi bảng. -->
+                <field name="state" column_invisible="True"/>
+                <field name="name"/>
+                <field name="postcode"/>
+                <field name="property_type_id"/>
+                <field name="bedrooms"/>
+                <field name="living_area"/>
+                <field name="expected_price"/>
+                <field name="selling_price"/>
+                <!-- User có thể bật cột optional; mặc định cột bị ẩn. -->
+                <field name="date_availability" optional="hide"/>
+                <!-- Widget tags render Many2many dạng badge và lấy màu từ
+                     estate.property.tag.color. -->
+                <field name="tag_ids" widget="many2many_tags" options="{'color_field': 'color'}"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- FORM VIEW: header chứa workflow; sheet chứa dữ liệu nghiệp vụ. -->
+    <record id="estate_property_view_form" model="ir.ui.view">
+        <field name="name">estate.property.form</field>
+        <field name="model">estate.property</field>
+        <field name="arch" type="xml">
+            <form string="Property">
+                <header>
+                    <!-- type="object" gọi method Python cùng tên trên recordset.
+                         invisible chỉ là UX; method vẫn tự kiểm tra transition. -->
+                    <button name="action_sold" type="object" string="Sold"
+                            class="btn-primary"
+                            invisible="state in ('sold', 'canceled')"/>
+                    <button name="action_cancel" type="object" string="Cancel"
+                            invisible="state in ('sold', 'canceled')"/>
+                    <!-- statusbar hiển thị state theo tiến trình, nhưng không tự
+                         thay đổi state nếu không có method/action ghi dữ liệu. -->
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="new,offer_received,offer_accepted,sold"/>
+                </header>
+                <sheet>
+                    <!-- oe_title là class layout chuẩn của Odoo form. -->
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1>
+                            <field name="name" placeholder="Property title"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <!-- no_create/no_open buộc quản trị type ở menu cấu
+                                 hình, tránh tạo nhanh dữ liệu danh mục sai. -->
+                            <field name="property_type_id"
+                                   options="{'no_create': True, 'no_open': True}"/>
+                            <field name="postcode"/>
+                            <field name="date_availability"/>
+                        </group>
+                        <group>
+                            <field name="expected_price"/>
+                            <field name="best_price"/>
+                            <field name="selling_price"/>
+                        </group>
+                    </group>
+                    <!-- notebook chia form thành các tab page. name ổn định giúp
+                         module khác kế thừa view bằng XPath dễ hơn. -->
+                    <notebook>
+                        <page string="Description" name="description">
+                            <group>
+                                <field name="description"/>
+                            </group>
+                            <group>
+                                <group>
+                                    <field name="bedrooms"/>
+                                    <field name="living_area"/>
+                                    <field name="facades"/>
+                                    <field name="garage"/>
+                                </group>
+                                <group>
+                                    <field name="garden"/>
+                                    <!-- Expression Odoo 19 dùng trực tiếp field;
+                                         hai field chỉ hiện khi garden=True. -->
+                                    <field name="garden_area" invisible="not garden"/>
+                                    <field name="garden_orientation" invisible="not garden"/>
+                                    <field name="total_area"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Offers" name="offers">
+                            <!-- One2many inline list. readonly ngăn tạo/sửa offer
+                                 sau khi property đi qua trạng thái cho phép. -->
+                            <field name="offer_ids"
+                                   readonly="state in ('offer_accepted', 'sold', 'canceled')">
+                                <!-- editable=bottom tạo dòng nhập mới cuối bảng;
+                                     decoration phản ánh status của từng offer. -->
+                                <list editable="bottom"
+                                      decoration-danger="status == 'refused'"
+                                      decoration-success="status == 'accepted'">
+                                    <field name="price"/>
+                                    <field name="partner_id"/>
+                                    <field name="validity"/>
+                                    <field name="date_deadline"/>
+                                    <!-- status vẫn cần cho decoration/invisible. -->
+                                    <field name="status" column_invisible="True"/>
+                                    <!-- Icon buttons gọi methods trên chính offer
+                                         của dòng hiện tại, không gọi property. -->
+                                    <button name="action_accept" type="object"
+                                            icon="fa-check" title="Accept"
+                                            invisible="status != False"/>
+                                    <button name="action_refuse" type="object"
+                                            icon="fa-times" title="Refuse"
+                                            invisible="status != False"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Other Info" name="other_info">
+                            <group>
+                                <field name="user_id"/>
+                                <field name="buyer_id"/>
+                                <field name="tag_ids" widget="many2many_tags"
+                                       options="{'color_field': 'color'}"/>
+                                <field name="active" invisible="True"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- SEARCH VIEW định nghĩa search fields, filters và group-by cho action. -->
+    <record id="estate_property_view_search" model="ir.ui.view">
+        <field name="name">estate.property.search</field>
+        <field name="model">estate.property</field>
+        <field name="arch" type="xml">
+            <search string="Search Properties">
+                <field name="name"/>
+                <field name="postcode"/>
+                <field name="property_type_id"/>
+                <field name="expected_price"/>
+                <field name="bedrooms"/>
+                <!-- self ở filter_domain là giá trị user nhập trong search box. -->
+                <field name="living_area" filter_domain="[('living_area', '&gt;=', self)]"/>
+                <separator/>
+                <!-- Domain được ORM chuyển thành SQL WHERE có tham số an toàn. -->
+                <filter name="available" string="Available"
+                        domain="[('state', 'in', ('new', 'offer_received'))]"/>
+                <filter name="with_garden" string="Has Garden"
+                        domain="[('garden', '=', True)]"/>
+                <separator/>
+                <!-- group_by đi qua context; server dùng read_group thay search thường. -->
+                <filter name="group_postcode" string="Postcode"
+                        context="{'group_by': 'postcode'}"/>
+                <filter name="group_property_type" string="Property Type"
+                        context="{'group_by': 'property_type_id'}"/>
+            </search>
+        </field>
+    </record>
+
+    <!-- KANBAN VIEW dùng QWeb template card cho mỗi record. -->
+    <record id="estate_property_view_kanban" model="ir.ui.view">
+        <field name="name">estate.property.kanban</field>
+        <field name="model">estate.property</field>
+        <field name="arch" type="xml">
+            <!-- Nhóm mặc định theo type; cấm drag để user không vô tình đổi type
+                 bằng kéo thả giữa các cột. -->
+            <kanban default_group_by="property_type_id" records_draggable="false">
+                <!-- Các field dùng trong QWeb/condition phải được khai báo để
+                     web client yêu cầu chúng trong RPC read. -->
+                <field name="state"/>
+                <field name="property_type_id"/>
+                <field name="expected_price"/>
+                <field name="best_price"/>
+                <field name="selling_price"/>
+                <field name="tag_ids"/>
+                <templates>
+                    <!-- Odoo 19 yêu cầu template card; mỗi lần render có object
+                         record chứa value (formatted) và raw_value (giá trị thô). -->
+                    <t t-name="card">
+                        <div class="d-flex flex-column gap-1">
+                            <strong class="fs-5"><field name="name"/></strong>
+                            <span>Expected: <field name="expected_price"/></span>
+                            <!-- raw_value phù hợp so sánh key state; value có thể
+                                 là label đã dịch nên không dùng cho business condition. -->
+                            <span t-if="record.state.raw_value in ['offer_received', 'offer_accepted', 'sold']">
+                                Best offer: <field name="best_price"/>
+                            </span>
+                            <span t-if="record.state.raw_value in ['offer_accepted', 'sold']">
+                                Selling price: <field name="selling_price"/>
+                            </span>
+                            <field name="tag_ids" widget="many2many_tags"
+                                   options="{'color_field': 'color'}"/>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <!-- WINDOW ACTION nối menu với model và danh sách view modes. -->
+    <record id="estate_property_action" model="ir.actions.act_window">
+        <field name="name">Properties</field>
+        <field name="res_model">estate.property</field>
+        <field name="view_mode">list,kanban,form</field>
+        <!-- Prefix search_default_ kích hoạt filter có name="available". -->
+        <field name="context">{'search_default_available': True}</field>
+    </record>
+</odoo>

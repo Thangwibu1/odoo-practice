@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <!-- Root menu tạo entry ứng dụng Real Estate trên thanh Apps. -->
+    <menuitem id="estate_menu_root" name="Real Estate" sequence="10"/>
+
+    <!-- Menu cấp hai chỉ là container; menu cấp ba có action mới mở view. -->
+    <menuitem id="estate_menu_properties" name="Advertisements"
+              parent="estate_menu_root" sequence="10"/>
+    <menuitem id="estate_menu_property_list" name="Properties"
+              parent="estate_menu_properties" action="estate_property_action"
+              sequence="10"/>
+
+    <!-- Danh mục Type/Tag được tách khỏi luồng tạo tin đăng để dữ liệu master
+         được quản lý nhất quán. -->
+    <menuitem id="estate_menu_configuration" name="Configuration"
+              parent="estate_menu_root" sequence="20"/>
+    <menuitem id="estate_menu_property_types" name="Property Types"
+              parent="estate_menu_configuration" action="estate_property_type_action"
+              sequence="10"/>
+    <menuitem id="estate_menu_property_tags" name="Property Tags"
+              parent="estate_menu_configuration" action="estate_property_tag_action"
+              sequence="20"/>
+</odoo>
