@@ -3,6 +3,8 @@ from datetime import timedelta
 from odoo.exceptions import UserError, ValidationError
 from odoo.tests import TransactionCase, tagged
 
+from odoo.addons.estate.models import constants
+
 
 @tagged("post_install", "-at_install")
 class TestEstate(TransactionCase):
@@ -44,7 +46,10 @@ class TestEstate(TransactionCase):
                 "property_id": self.property.id,
             }
         )
-        self.assertEqual(self.property.state, "offer_received")
+        self.assertEqual(
+            self.property.state,
+            constants.PROPERTY_STATE_OFFER_RECEIVED,
+        )
         self.assertEqual(self.property.best_price, 95_000)
         self.assertEqual(
             offer.date_deadline,
@@ -53,13 +58,16 @@ class TestEstate(TransactionCase):
 
         # Accept đồng bộ dữ liệu từ offer sang property trong một transaction.
         offer.action_accept()
-        self.assertEqual(self.property.state, "offer_accepted")
+        self.assertEqual(
+            self.property.state,
+            constants.PROPERTY_STATE_OFFER_ACCEPTED,
+        )
         self.assertEqual(self.property.buyer_id, self.partner)
         self.assertEqual(self.property.selling_price, 95_000)
 
         # Chỉ property đã có buyer mới được chuyển sang Sold.
         self.property.action_sold()
-        self.assertEqual(self.property.state, "sold")
+        self.assertEqual(self.property.state, constants.PROPERTY_STATE_SOLD)
 
     def test_lower_offer_is_rejected(self):
         """Business create override phải chặn offer thấp hơn giá cao nhất."""
@@ -86,6 +94,6 @@ class TestEstate(TransactionCase):
 
     def test_delete_business_rule(self):
         """@api.ondelete không cho xóa property đang có offer."""
-        self.property.state = "offer_received"
+        self.property.state = constants.PROPERTY_STATE_OFFER_RECEIVED
         with self.assertRaises(UserError):
             self.property.unlink()

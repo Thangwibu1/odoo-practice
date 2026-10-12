@@ -1,5 +1,7 @@
 from odoo import fields, models
 
+from . import constants
+
 
 class ResUsers(models.Model):
     """Mở rộng user chuẩn bằng danh sách property phụ trách.
@@ -16,5 +18,14 @@ class ResUsers(models.Model):
         comodel_name="estate.property",
         inverse_name="user_id",
         string="Real Estate Properties",
-        domain=[("state", "in", ["new", "offer_received"])],
+        domain=[
+            (
+                "state",
+                "in",
+                [
+                    constants.PROPERTY_STATE_NEW,
+                    constants.PROPERTY_STATE_OFFER_RECEIVED,
+                ],
+            )
+        ],
     )

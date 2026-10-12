@@ -363,7 +363,7 @@ Kết quả: file nằm trên ổ đĩa nhưng với Python/Odoo nó gần như 
 
 ### File
 
-`my_addons/estate/models/estate_property.py`, dòng 9–21:
+Trong `my_addons/estate/models/estate_property.py`:
 
 ```python
 class EstateProperty(models.Model):
@@ -425,15 +425,22 @@ self.env["estate.property"]
 
 ## 0.8. Bước 7 — Khai báo field của model
 
-Ví dụ các field đầu tiên, dòng 27–40:
+Ví dụ các field đầu tiên:
 
 ```python
+def _default_date_availability(self):
+    """Ngày giao nhà mặc định được tính tại thời điểm Odoo cần default."""
+    return fields.Date.today() + relativedelta(
+        months=constants.DEFAULT_AVAILABILITY_MONTHS
+    )
+
+
 name = fields.Char(string="Title", required=True)
 description = fields.Text()
 postcode = fields.Char()
 date_availability = fields.Date(
     copy=False,
-    default=lambda self: fields.Date.today() + relativedelta(months=3),
+    default=_default_date_availability,
 )
 expected_price = fields.Float(required=True)
 selling_price = fields.Float(copy=False, readonly=True)
@@ -492,14 +499,20 @@ bedrooms = fields.Integer(default=2)
 Default không tạo sẵn record. Nó được ORM dùng khi client gọi `default_get()`
 hoặc `create()` thiếu key `bedrooms`.
 
-Callable default:
+Callable default có tên:
 
 ```python
-default=lambda self: fields.Date.today() + relativedelta(months=3)
+def _default_date_availability(self):
+    return fields.Date.today() + relativedelta(
+        months=constants.DEFAULT_AVAILABILITY_MONTHS
+    )
+
+date_availability = fields.Date(default=_default_date_availability)
 ```
 
-được gọi tại thời điểm cần default, nên ngày được tính theo lúc tạo chứ không bị
-đóng băng từ lúc server khởi động.
+Hàm được gọi tại thời điểm cần default, nên ngày được tính theo lúc tạo chứ
+không bị đóng băng từ lúc server khởi động. Dùng tên hàm thay cho `lambda` để
+có thể đặt breakpoint, viết docstring và đọc ngay được mục đích.
 
 ---
 
@@ -724,7 +737,7 @@ Error. Vì vậy cần kiểm thử bằng user đúng nhóm, không chỉ bằn
 
 ### File
 
-`my_addons/estate/views/estate_property_views.xml`, dòng 8–34:
+Trong `my_addons/estate/views/estate_property_views.xml`:
 
 ```xml
 <record id="estate_property_view_list" model="ir.ui.view">
@@ -854,7 +867,7 @@ Mối nối này sẽ xuất hiện ở bước action ngay sau đây.
 
 ### File
 
-`my_addons/estate/views/estate_property_views.xml`, dòng 214–220:
+Trong record `estate_property_action` của `estate_property_views.xml`:
 
 ```xml
 <record id="estate_property_action" model="ir.actions.act_window">
@@ -1416,7 +1429,7 @@ Bấm menu **Properties**.
 
 ### File và dòng
 
-`estate_menus.xml`, dòng 9–10:
+Trong `estate_menus.xml`:
 
 ```xml
 <menuitem id="estate_menu_property_list" name="Properties"
@@ -1449,7 +1462,7 @@ Web client yêu cầu thông tin window action.
 
 ### File và dòng
 
-`estate_property_views.xml`, dòng 214–218:
+Trong record `estate_property_action` của `estate_property_views.xml`:
 
 ```xml
 <record id="estate_property_action" model="ir.actions.act_window">
@@ -1655,7 +1668,7 @@ Nếu đóng form mà chưa Save, record tạm biến mất.
 
 ### File và dòng
 
-`estate_property_views.xml`, dòng 37:
+Trong form view của `estate_property_views.xml`:
 
 ```xml
 <record id="estate_property_view_form" model="ir.ui.view">
@@ -1684,18 +1697,30 @@ odoo/orm/models.py:1271 → default_get(fields)
 `estate_property.py`:
 
 ```python
+def _default_date_availability(self):
+    """Trả ngày hiện tại cộng số tháng giao nhà mặc định."""
+    return fields.Date.today() + relativedelta(
+        months=constants.DEFAULT_AVAILABILITY_MONTHS
+    )
+
+
+def _default_salesperson(self):
+    """Trả user hiện tại để làm salesperson mặc định."""
+    return self.env.user
+
+
 date_availability = fields.Date(
     copy=False,
-    default=lambda self: fields.Date.today() + relativedelta(months=3),
+    default=_default_date_availability,
 )
 
 bedrooms = fields.Integer(default=2)
 active = fields.Boolean(default=True)
-state = fields.Selection(..., default="new")
+state = fields.Selection(..., default=constants.PROPERTY_STATE_NEW)
 
 user_id = fields.Many2one(
     comodel_name="res.users",
-    default=lambda self: self.env.user,
+    default=_default_salesperson,
 )
 ```
 
@@ -1753,7 +1778,7 @@ Garden           = bật
 
 ### XML field
 
-`estate_property_views.xml`, dòng 60:
+Trong field `garden` của form view:
 
 ```xml
 <field name="name" placeholder="Property title"/>
@@ -1779,7 +1804,7 @@ Chưa gọi `create()`.
 
 ### XML field
 
-`estate_property_views.xml`, dòng 73:
+Trong tab Offers của form view:
 
 ```xml
 <field name="expected_price"/>
@@ -1801,7 +1826,7 @@ changes.expected_price = 100000
 
 ### Trigger đăng ký ở Python
 
-`estate_property.py`, dòng 146–147:
+Trong method `_compute_total_area()` của `estate_property.py`:
 
 ```python
 @api.onchange("garden")
@@ -2766,30 +2791,17 @@ Giá 0 hoặc âm bị PostgreSQL từ chối.
 Sau khi Offer tồn tại:
 
 ```python
-offers.property_id.filtered(
-    lambda property_record: property_record.state == "new"
-).state = "offer_received"
+for property_record in offers.property_id:
+    if property_record.state == constants.PROPERTY_STATE_NEW:
+        property_record.state = constants.PROPERTY_STATE_OFFER_RECEIVED
 ```
 
 Từng phần:
 
-```text
-offers.property_id
-```
+`offers.property_id` lấy tất cả Property cha của batch Offers.
 
-lấy tất cả Property cha của batch Offers.
-
-```text
-.filtered(lambda ... state == "new")
-```
-
-chỉ giữ Property đang New.
-
-```text
-.state = "offer_received"
-```
-
-ORM ghi state mới, tương đương `write({"state": "offer_received"})`.
+Vòng lặp kiểm tra rõ từng record. Property đang New mới được ORM ghi thành
+Offer Received; các trạng thái Accepted, Sold hoặc Canceled không bị ghi đè.
 
 ## Bước K9 — Best Price được invalidated
 

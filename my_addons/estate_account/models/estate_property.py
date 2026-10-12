@@ -1,5 +1,7 @@
 from odoo import Command, models
 
+from . import constants
+
 
 class EstateProperty(models.Model):
     """Bổ sung việc tạo customer invoice vào workflow bán property."""
@@ -13,6 +15,13 @@ class EstateProperty(models.Model):
         Toàn bộ chạy trong cùng PostgreSQL transaction. Nếu invoice create lỗi,
         thay đổi state do super() cũng rollback; nhờ vậy không có property Sold
         nhưng thiếu invoice. Không dùng sudo nên ACL của user vẫn được tôn trọng.
+
+        Returns:
+            bool: Kết quả nguyên bản từ ``estate.property.action_sold``.
+
+        Raises:
+            UserError/AccessError/ValidationError: Được truyền nguyên từ logic
+                gốc hoặc từ việc tạo invoice để transaction có thể rollback.
         """
         # super kiểm tra canceled/already sold/buyer và đổi state trước. Luôn giữ
         # super để không phá logic của estate hoặc module khác trong MRO.
@@ -22,7 +31,7 @@ class EstateProperty(models.Model):
             self.env["account.move"].create(
                 {
                     # out_invoice là Customer Invoice, không phải vendor bill.
-                    "move_type": "out_invoice",
+                    "move_type": constants.CUSTOMER_INVOICE_MOVE_TYPE,
                     # Many2one create value phải là integer ID, không phải recordset.
                     "partner_id": property_record.buyer_id.id,
                     # One2many nhận danh sách Commands. Hai line được tạo và liên
@@ -30,19 +39,22 @@ class EstateProperty(models.Model):
                     "invoice_line_ids": [
                         Command.create(
                             {
-                                "name": "Real estate commission (6%)",
+                                "name": constants.COMMISSION_LINE_NAME,
                                 "quantity": 1,
                                 # 6% giá bán đã được Accept Offer ghi lên property.
-                                "price_unit": property_record.selling_price * 0.06,
+                                "price_unit": (
+                                    property_record.selling_price
+                                    * constants.COMMISSION_RATE
+                                ),
                             }
                         ),
                         Command.create(
                             {
-                                "name": "Administrative fees",
+                                "name": constants.ADMINISTRATIVE_FEE_LINE_NAME,
                                 "quantity": 1,
                                 # account.move dùng currency của company/journal;
                                 # 100.0 được hiểu theo đơn vị tiền tệ đó.
-                                "price_unit": 100.0,
+                                "price_unit": constants.ADMINISTRATIVE_FEE_AMOUNT,
                             }
                         ),
                     ],

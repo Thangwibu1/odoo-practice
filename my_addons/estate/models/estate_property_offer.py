@@ -5,6 +5,8 @@ from odoo.exceptions import UserError
 from odoo.tools import _
 from odoo.tools.float_utils import float_compare
 
+from . import constants
+
 
 class EstatePropertyOffer(models.Model):
     """Một đề nghị mua dành cho một property và một partner cụ thể."""
@@ -18,10 +20,7 @@ class EstatePropertyOffer(models.Model):
     price = fields.Float(required=True)
     # False nghĩa là offer chưa xử lý; accepted/refused là trạng thái cuối.
     status = fields.Selection(
-        selection=[
-            ("accepted", "Accepted"),
-            ("refused", "Refused"),
-        ],
+        selection=constants.OFFER_STATUS_SELECTION,
         copy=False,
     )
     # Người đưa ra offer. res.partner dùng chung cho cá nhân/doanh nghiệp.
@@ -39,7 +38,7 @@ class EstatePropertyOffer(models.Model):
         ondelete="cascade",
     )
     # Số ngày offer còn hiệu lực; user có thể sửa validity hoặc deadline.
-    validity = fields.Integer(default=7)
+    validity = fields.Integer(default=constants.DEFAULT_OFFER_VALIDITY_DAYS)
     # inverse làm computed field có thể nhập ngược: đổi deadline sẽ tính validity.
     date_deadline = fields.Date(
         compute="_compute_date_deadline",
@@ -62,8 +61,12 @@ class EstatePropertyOffer(models.Model):
     def _compute_date_deadline(self):
         """Tính deadline từ ngày tạo và số ngày validity.
 
-        Khi form đang tạo record, ``create_date`` chưa tồn tại vì chưa INSERT.
-        Ngày hiện tại theo context/timezone user là fallback an toàn.
+        Odoo gọi hàm khi ``create_date`` hoặc ``validity`` thay đổi. Khi form
+        đang tạo record, ``create_date`` chưa tồn tại vì chưa INSERT; ngày hiện
+        tại theo context/timezone của user là fallback an toàn.
+
+        Side effects:
+            Gán ``date_deadline`` cho từng offer trong ``self``.
         """
         for offer in self:
             creation_date = fields.Date.to_date(offer.create_date)
@@ -72,7 +75,15 @@ class EstatePropertyOffer(models.Model):
             offer.date_deadline = creation_date + relativedelta(days=offer.validity)
 
     def _inverse_date_deadline(self):
-        """Tính ngược validity khi user trực tiếp thay đổi deadline."""
+        """Tính ngược validity khi user trực tiếp thay đổi deadline.
+
+        Odoo gọi inverse lúc lưu một ``date_deadline`` do user nhập. Số ngày
+        được tính từ ngày tạo; offer mới chưa có ``create_date`` nên dùng ngày
+        hiện tại theo context làm mốc.
+
+        Side effects:
+            Gán lại ``validity`` cho từng offer có deadline.
+        """
         for offer in self:
             if not offer.date_deadline:
                 continue
@@ -85,9 +96,20 @@ class EstatePropertyOffer(models.Model):
     def create(self, vals_list):
         """Tạo một batch offer và cập nhật state của property.
 
-        Odoo có thể gọi create với nhiều dict một lần, nên không được giả định chỉ
-        có một vals. Validation chạy trước ``super`` để transaction không INSERT
-        offer sai; sau super ta mới có recordset thật để cập nhật property.
+        Odoo gọi override này cho cả form, import và RPC. ``vals_list`` là danh
+        sách dict vì decorator hỗ trợ tạo nhiều offer trong một lệnh. Validation
+        chạy trước ``super`` để không INSERT offer thấp hơn giá tốt nhất; sau
+        ``super`` mới có recordset thật để đổi trạng thái property.
+
+        Args:
+            vals_list (list[dict]): Các giá trị thô dùng để tạo offer.
+
+        Raises:
+            UserError: Nếu giá mới thấp hơn best price hiện có hoặc trước đó
+                trong cùng batch.
+
+        Returns:
+            estate.property.offer: Recordset các offer vừa được ORM tạo.
         """
 
         # Cache giá cao nhất theo property trong chính batch. Nếu batch chứa hai
@@ -117,41 +139,82 @@ class EstatePropertyOffer(models.Model):
 
         # super thực hiện security checks, conversion, INSERT và constraints.
         offers = super().create(vals_list)
-        # Chỉ chuyển New -> Offer Received; không ghi đè state Accepted/Sold.
-        offers.property_id.filtered(
-            lambda property_record: property_record.state == "new"
-        ).state = "offer_received"
+        # Dùng vòng lặp tường minh thay cho lambda để người mới có thể lần theo
+        # từng property. Chỉ chuyển New -> Offer Received, không ghi đè state sau.
+        for property_record in offers.property_id:
+            if property_record.state == constants.PROPERTY_STATE_NEW:
+                property_record.state = constants.PROPERTY_STATE_OFFER_RECEIVED
         return offers
 
+    def _has_another_accepted_offer(self):
+        """Kiểm tra property đã có một offer khác được chấp nhận hay chưa.
+
+        Đây là helper nội bộ được ``action_accept`` gọi cho từng offer. Vòng lặp
+        có tên biến rõ ràng được dùng thay cho ``filtered(lambda ...)`` để dễ
+        debug và giúp quy tắc “mỗi property chỉ có một offer accepted” lộ rõ.
+
+        Returns:
+            bool: ``True`` nếu tồn tại sibling offer có trạng thái Accepted.
+        """
+        self.ensure_one()
+        for candidate_offer in self.property_id.offer_ids:
+            is_current_offer = candidate_offer == self
+            is_accepted = (
+                candidate_offer.status == constants.OFFER_STATUS_ACCEPTED
+            )
+            if not is_current_offer and is_accepted:
+                return True
+        return False
+
     def action_accept(self):
-        """Chấp nhận offer và đồng bộ buyer/giá bán/state lên property."""
+        """Chấp nhận offer và đồng bộ dữ liệu sang property.
+
+        Button dấu tick gọi method này. Mỗi offer phải chưa được xử lý, property
+        phải còn mở và không được có offer khác Accepted. Nếu hợp lệ, hàm ghi
+        buyer, selling price và state lên property trong cùng transaction.
+
+        Raises:
+            UserError: Nếu offer đã xử lý, property đã đóng hoặc đã có offer
+                khác được chấp nhận.
+
+        Returns:
+            bool: ``True`` khi tất cả offer trong ``self`` được chấp nhận.
+        """
         for offer in self:
             if offer.status:
                 raise UserError(_("A processed offer cannot be accepted again."))
             property_record = offer.property_id
-            # Lọc trong recordset sibling offers để duy trì invariant: một
-            # property chỉ có tối đa một offer accepted.
-            accepted_offer = property_record.offer_ids.filtered(
-                lambda candidate: candidate.status == "accepted" and candidate != offer
+            property_is_closed = (
+                property_record.state in constants.PROPERTY_CLOSED_STATES
             )
-            if accepted_offer or property_record.state in ("sold", "canceled"):
+            if offer._has_another_accepted_offer() or property_is_closed:
                 raise UserError(
                     _("Only one offer can be accepted for an available property.")
                 )
-            offer.status = "accepted"
+            offer.status = constants.OFFER_STATUS_ACCEPTED
             # write một dict giúp ba field thay đổi trong cùng transaction.
             property_record.write(
                 {
                     "buyer_id": offer.partner_id.id,
                     "selling_price": offer.price,
-                    "state": "offer_accepted",
+                    "state": constants.PROPERTY_STATE_OFFER_ACCEPTED,
                 }
             )
         return True
 
     def action_refuse(self):
-        """Từ chối các offer chưa xử lý; không cho đảo trạng thái cuối."""
+        """Từ chối toàn bộ offer chưa xử lý trong ``self``.
+
+        Button dấu X gọi method này. Kiểm tra cả recordset trước rồi mới ``write``
+        một lần để tránh trạng thái nửa thành công khi chọn nhiều record.
+
+        Raises:
+            UserError: Nếu ít nhất một offer đã Accepted hoặc Refused.
+
+        Returns:
+            bool: ``True`` sau khi cập nhật trạng thái thành công.
+        """
         if self.filtered("status"):
             raise UserError(_("A processed offer cannot be refused again."))
-        self.write({"status": "refused"})
+        self.write({"status": constants.OFFER_STATUS_REFUSED})
         return True

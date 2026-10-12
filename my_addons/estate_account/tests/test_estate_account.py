@@ -1,5 +1,7 @@
 from odoo.tests import TransactionCase, tagged
 
+from odoo.addons.estate_account.models import constants
+
 
 @tagged("post_install", "-at_install")
 class TestEstateAccount(TransactionCase):
@@ -24,20 +26,29 @@ class TestEstateAccount(TransactionCase):
         # Ghi nhận số invoice trước action để assertion không phụ thuộc dữ liệu
         # có sẵn trong database chạy test.
         invoice_count = self.env["account.move"].search_count(
-            [("move_type", "=", "out_invoice"), ("partner_id", "=", partner.id)]
+            [
+                ("move_type", "=", constants.CUSTOMER_INVOICE_MOVE_TYPE),
+                ("partner_id", "=", partner.id),
+            ]
         )
         # Đây là method đã được estate_account override; super đổi state trước,
         # sau đó extension tạo account.move trong cùng transaction.
         property_record.action_sold()
         invoice = self.env["account.move"].search(
-            [("move_type", "=", "out_invoice"), ("partner_id", "=", partner.id)],
+            [
+                ("move_type", "=", constants.CUSTOMER_INVOICE_MOVE_TYPE),
+                ("partner_id", "=", partner.id),
+            ],
             order="id desc",
             limit=1,
         )
 
         self.assertEqual(
             self.env["account.move"].search_count(
-                [("move_type", "=", "out_invoice"), ("partner_id", "=", partner.id)]
+                [
+                    ("move_type", "=", constants.CUSTOMER_INVOICE_MOVE_TYPE),
+                    ("partner_id", "=", partner.id),
+                ]
             ),
             invoice_count + 1,
         )
@@ -45,5 +56,10 @@ class TestEstateAccount(TransactionCase):
         self.assertEqual(len(invoice.invoice_line_ids), 2)
         self.assertEqual(
             sorted(invoice.invoice_line_ids.mapped("price_unit")),
-            [100.0, 6_000.0],
+            sorted(
+                [
+                    constants.ADMINISTRATIVE_FEE_AMOUNT,
+                    100_000 * constants.COMMISSION_RATE,
+                ]
+            ),
         )

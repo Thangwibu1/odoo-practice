@@ -10,6 +10,9 @@ trước khi lập kế hoạch.
 
 ## Tài liệu theo luồng thực thi
 
+- [`estate_from_a_to_z.md`](estate_from_a_to_z.md): guideline tự dựng lại toàn bộ
+  `estate` và `estate_account` từ folder trống, có code hoàn chỉnh từng file,
+  giải thích, lệnh chạy, tests, debug và checkpoints thực hành.
 - [`record_creation_flow.md`](record_creation_flow.md): lần theo đầy đủ quá trình
   tạo Property/Offer từ Menu, Action, Form và RPC đến ORM, constraints,
   PostgreSQL transaction và response trở lại browser.

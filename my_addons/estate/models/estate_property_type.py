@@ -33,6 +33,13 @@ class EstatePropertyType(models.Model):
 
     @api.depends("offer_ids")
     def _compute_offer_count(self):
-        """Đếm offer liên quan cho từng type để hiển thị stat button."""
+        """Đếm offer liên quan cho từng property type.
+
+        Odoo gọi hàm khi tập ``offer_ids`` thay đổi theo ``@api.depends``. Kết
+        quả được dùng bởi stat button Offers trên form Property Type.
+
+        Side effects:
+            Gán ``offer_count`` cho mọi record trong ``self``.
+        """
         for property_type in self:
             property_type.offer_count = len(property_type.offer_ids)
